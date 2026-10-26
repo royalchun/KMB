@@ -1,0 +1,142 @@
+import { useEffect, useRef, useState } from 'react';
+import { ArrowDown, ArrowRight, ArrowUpRight, BusFront, Check, ChevronDown, CircleHelp, ExternalLink, Layers, MapPin, Radio, RefreshCw, Route as RouteIcon, Share2, Signal, TriangleAlert, X } from 'lucide-react';
+import MapView from './MapView';
+import snapshots from './route-snapshot.json';
+import { estimateBuses, fresh } from './estimate';
+import { demoFeed } from './demo';
+import type { Direction, Feed, Operator, Route, Selection } from './types';
+
+const fallback = (direction: Direction) => snapshots.find(s => s.direction === direction) as Route;
+const initial: Selection = { operator: 'ctb', route: '22D', direction: 'outbound', serviceType: '1' };
+function fromLink(): Selection {
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('demo') === '1') return initial;
+  const operator = params.get('operator'), route = params.get('route'), direction = params.get('direction'), serviceType = params.get('serviceType');
+  return { operator: operator === 'kmb' ? 'kmb' : 'ctb', route: route && /^[A-Z0-9]{1,8}$/.test(route) ? route : '22D', direction: direction === 'inbound' ? 'inbound' : 'outbound', serviceType: serviceType && /^[1-9][0-9]?$/.test(serviceType) ? serviceType : '1' };
+}
+const timeLabel = (time: number) => new Date(time).toLocaleTimeString('en-GB', { timeZone: 'Asia/Hong_Kong', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+async function api<T>(endpoint: string, selection: Selection, signal: AbortSignal): Promise<T> {
+  const response = await fetch(`/api/${endpoint}?${new URLSearchParams({ ...selection })}`, { signal });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || 'The live service is unavailable.');
+  return data;
+}
+export default function App() {
+  const [selection, setSelection] = useState<Selection>(fromLink);
+  const [route, setRoute] = useState<Route>(fallback('outbound'));
+  const [feed, setFeed] = useState<Feed | null>(null);
+  const [mode, setMode] = useState<'live' | 'demo'>(() => new URLSearchParams(window.location.search).get('demo') === '1' ? 'demo' : 'live');
+  const [now, setNow] = useState(Date.now());
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [selected, setSelected] = useState(1);
+  const [refresh, setRefresh] = useState(0);
+  const [tilted, setTilted] = useState(false);
+  const [traffic, setTraffic] = useState(false);
+  const [info, setInfo] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [draftRoute, setDraftRoute] = useState('22D');
+  const [draftOperator, setDraftOperator] = useState<Operator>('ctb');
+  const [draftService, setDraftService] = useState('1');
+  const [toast, setToast] = useState('');
+  const demoStart = useRef(Date.now());
+  const dataRef = useRef<HTMLDivElement>(null);
+  const activeRef = useRef<HTMLButtonElement>(null);
+  const hasTraffic = !!import.meta.env.VITE_TOMTOM_API_KEY;
+  const routeMatches = route.operator === selection.operator && route.route === selection.route && route.direction === selection.direction && route.serviceType === selection.serviceType;
+
+  useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(timer); }, []);
+  useEffect(() => { setFeed(null); setError(''); setSelected(1); }, [selection, mode]);
+  useEffect(() => {
+    const controller = new AbortController();
+    let busy = false;
+    async function load() {
+      if (busy) return;
+      busy = true; setLoading(true);
+      try {
+        if (mode === 'demo') {
+          setRoute(fallback(selection.direction));
+          setFeed(demoFeed(fallback(selection.direction), demoStart.current, Date.now()));
+          setError('');
+        } else {
+          const nextRoute = await api<Route>('route', selection, controller.signal);
+          if (controller.signal.aborted) return;
+          setRoute(previous => JSON.stringify(previous) === JSON.stringify(nextRoute) ? previous : nextRoute);
+          const nextFeed = await api<Feed>('etas', selection, controller.signal);
+          if (controller.signal.aborted) return;
+          setFeed(nextFeed); setError('');
+        }
+      } catch (e) {
+        if (!controller.signal.aborted) setError(e instanceof Error ? e.message : 'Unable to connect to the live service.');
+      } finally { if (!controller.signal.aborted) setLoading(false); busy = false; }
+    }
+    void load();
+    const timer = setInterval(load, mode === 'demo' ? 10_000 : 30_000);
+    return () => { controller.abort(); clearInterval(timer); };
+  }, [selection, mode, refresh]);
+  useEffect(() => { if (!toast) return; const timer = setTimeout(() => setToast(''), 5000); return () => clearTimeout(timer); }, [toast]);
+  useEffect(() => { if (info || editing) { const close = (e: KeyboardEvent) => { if (e.key === 'Escape') { setInfo(false); setEditing(false); } }; window.addEventListener('keydown', close); return () => window.removeEventListener('keydown', close); } }, [info, editing]);
+  useEffect(() => {
+    if (!info && !editing) return;
+    const previous = document.activeElement as HTMLElement;
+    const dialog = document.querySelector<HTMLElement>('[role="dialog"]');
+    const controls = Array.from(dialog?.querySelectorAll<HTMLElement>('button, a[href], input, select') || []);
+    (dialog?.querySelector<HTMLElement>('input') || controls[0])?.focus();
+    const trap = (e: KeyboardEvent) => {
+      if (e.key !== 'Tab' || !controls.length) return;
+      if (e.shiftKey && document.activeElement === controls[0]) { e.preventDefault(); controls.at(-1)?.focus(); }
+      if (!e.shiftKey && document.activeElement === controls.at(-1)) { e.preventDefault(); controls[0]?.focus(); }
+    };
+    document.addEventListener('keydown', trap);
+    return () => { document.removeEventListener('keydown', trap); previous?.focus(); };
+  }, [info, editing]);
+  const buses = estimateBuses(route, routeMatches ? feed : null, now);
+  const selectedStop = route.stops.find(s => s.seq === selected) || route.stops[0];
+  const selectedFeed = feed?.stops.find(s => s.stopId === selectedStop.id && s.seq === selectedStop.seq);
+  const validFeed = feed?.stops.filter(s => fresh(s, now)).length || 0;
+  const status = mode === 'demo' ? 'DEMO DATA' : error ? 'CONNECTION ISSUE' : loading && !feed ? 'CONNECTING' : validFeed ? 'LIVE ARRIVALS' : 'AWAITING FRESH DATA';
+  function selectStop(seq: number) { setSelected(seq); dataRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }
+  function setDemo() { demoStart.current = Date.now(); setSelection(initial); setMode('demo'); }
+  async function share() {
+    const url = new URL(window.location.href);
+    url.search = new URLSearchParams({ ...selection, ...(mode === 'demo' ? { demo: '1' } : {}) }).toString();
+    try { await navigator.clipboard.writeText(url.toString()); setCopied(true); setTimeout(() => setCopied(false), 2500); }
+    catch { setToast('Copy this page’s address from your browser to share the monitor.'); }
+  }
+  function applyRoute(e: React.FormEvent) {
+    e.preventDefault(); setMode('live');
+    setSelection({ operator: draftOperator, route: draftRoute.trim().toUpperCase(), direction: 'outbound', serviceType: draftService });
+    setEditing(false);
+  }
+  return <div className="app">
+    <header className="topbar"><a className="brand" href="/" aria-label="Kai Tak bus monitor home"><span className="brand-icon"><BusFront size={23}/></span><span>kai tak<span className="brand-dot">.</span><small>THE BUS MONITOR</small></span></a><nav aria-label="Main navigation"><button className="nav-current" onClick={() => setInfo(false)}><Radio size={15}/> Live map</button><button onClick={() => setInfo(true)}>How it works <ArrowUpRight size={14}/></button></nav><div className="header-end"><span className="hk-clock">HONG KONG <strong>{timeLabel(now)}</strong></span><button className="share-button" onClick={share}>{copied ? <Check size={16}/> : <Share2 size={16}/>}<span>{copied ? 'Copied' : 'Share monitor'}</span></button></div></header>
+    <main>
+      <div className="page-heading"><div><div className="eyebrow"><span className="tiny-line"/>YOUR NEIGHBOURHOOD, IN MOTION</div><h1>A little less waiting.</h1><p>Follow the route. Find your stop. Know what’s next.</p></div><div className={`status-chip ${mode === 'demo' ? 'demo' : error ? 'warning' : ''}`} role="status"><span/>{status}</div></div>
+      <div className="workspace">
+        <aside className="sidebar">
+          <div className="route-card"><div className="route-card-top"><span className="eyebrow">YOUR ROUTE</span><button className="text-button" onClick={() => { setDraftRoute(selection.route); setDraftOperator(selection.operator); setDraftService(selection.serviceType); setEditing(true); }}>Change <ChevronDown size={13}/></button></div><div className="route-title"><span className="route-number">{selection.route}</span><div><span className="operator-label">{selection.operator === 'ctb' ? 'CITYBUS 城巴' : 'KMB 九巴'}</span><span className="route-type">{selection.direction === 'outbound' ? 'Outbound' : 'Inbound'} service</span></div></div><div className="endpoints"><div><i/>{routeMatches ? route.origin : 'Loading route…'}</div><span className="endpoint-line"/><div><i/>{routeMatches ? route.destination : 'Awaiting route details'}</div></div><button className="direction-button" onClick={() => setSelection(s => ({ ...s, direction: s.direction === 'outbound' ? 'inbound' : 'outbound' }))}><ArrowDown size={13}/> Switch direction</button><div className="route-facts"><span><MapPin size={13}/>{routeMatches ? route.stops.length : '—'} stops</span><span><RefreshCw size={12}/>Every {mode === 'demo' ? '10' : '30'} sec</span><span>2D map</span></div></div>
+          <div className="stops-heading"><h2>Along the route <span>{routeMatches ? String(route.stops.length).padStart(2, '0') : '—'}</span></h2><span>ARRIVAL</span></div>
+          <div className="stop-list" aria-label="Route stops">{routeMatches ? route.stops.map((stop, index) => {
+            const stopFeed = feed?.stops.find(s => s.stopId === stop.id && s.seq === stop.seq);
+            const next = fresh(stopFeed, now) ? stopFeed!.arrivals.find(a => Date.parse(a.eta) > now - 10_000) : undefined;
+            const mins = next ? Math.max(0, Math.ceil((Date.parse(next.eta) - now) / 60_000)) : null;
+            return <button key={`${stop.id}-${stop.seq}`} ref={selected === stop.seq ? activeRef : undefined} className={`stop-row ${selected === stop.seq ? 'active' : ''}`} onClick={() => selectStop(stop.seq)} aria-pressed={selected === stop.seq}><span className="stop-track"><span>{String(index + 1).padStart(2, '0')}</span></span><span className="stop-name">{stop.name.split(',')[0]}<small>{stop.nameTc.split(',')[0]}</small></span><span className="stop-eta">{mins === null ? '—' : mins === 0 ? 'Due' : <>{mins}<small>min</small></>}</span></button>;
+          }) : <p className="empty-stops">No stop list loaded for this route. Check the route number or switch direction.</p>}</div>
+          <div className="sidebar-foot"><CircleHelp size={15}/><span>Bus positions are estimates, not GPS.</span><button aria-label="Learn about bus position estimates" onClick={() => setInfo(true)}><ArrowUpRight size={15}/></button></div>
+        </aside>
+        <section className="map-panel" aria-label="Route monitor"><div className="map-toolbar"><div className="view-tabs"><button className={!tilted ? 'active' : ''} onClick={() => setTilted(false)}>2D map</button><button className={tilted ? 'active' : ''} onClick={() => setTilted(true)}>Tilt view <span>BETA</span></button></div><button className={`traffic-toggle ${traffic ? 'active' : ''}`} onClick={() => { if (hasTraffic) setTraffic(t => !t); else setToast('Traffic overlay is not configured. HKeMobility has current traffic information.'); }} aria-pressed={traffic}><Layers size={15}/><span>Traffic</span><i/></button></div>
+          <MapView route={route} buses={buses} selected={selected} onSelect={selectStop} traffic={traffic} tilted={tilted} reset={refresh}/>
+          {!routeMatches && <div className="previous-route-note">Map still shows {route.operator.toUpperCase()} {route.route} · {route.direction}. The selected route has not loaded.</div>}
+          <div className="map-summary"><div><span className={`summary-dot ${mode === 'demo' ? 'sample' : ''}`}/><strong>{mode === 'demo' ? 'Demo mode' : validFeed ? 'Arrivals connected' : 'Waiting for live data'}</strong><span className="summary-secondary">{buses.length} location {buses.length === 1 ? 'estimate' : 'estimates'}</span></div><button onClick={() => setRefresh(n => n + 1)} aria-label="Refresh arrivals" disabled={loading}><RefreshCw size={14} className={loading ? 'spin' : ''}/><span>{loading ? 'Updating…' : feed ? `Updated ${timeLabel(Date.parse(feed.fetchedAt))}` : 'Retry connection'}</span></button></div>
+        </section>
+      </div>
+      <div className={`data-notice ${error ? 'has-error' : ''}`} role="status">{mode === 'demo' ? <><span className="notice-icon"><BusFront size={18}/></span><p><strong>You’re exploring a demo.</strong> All arrival times and buses are simulated. Stop locations come from a saved route snapshot.</p><button onClick={() => { setMode('live'); setSelection(initial); }}>Connect live data <ArrowRight size={14}/></button></> : error ? <><TriangleAlert size={19}/><p><strong>Live data is unavailable.</strong> {error} {route.snapshot ? 'Map stops use a saved 22D snapshot.' : 'Any retained arrivals are labelled by freshness.'}</p><button onClick={setDemo}>Explore demo <ArrowRight size={14}/></button></> : <><Signal size={18}/><p><strong>{feed?.partial ? 'Some stops could not update.' : 'Arrival times from the operator.'}</strong> {loading ? 'Connecting to the government open data service…' : 'Positions are inferred from ETAs. Stops with old data are excluded from estimates.'}</p><button onClick={() => setInfo(true)}>About the data <ArrowUpRight size={14}/></button></>}</div>
+      <div className="lower-grid"><section className="arrival-card" ref={dataRef}><div className="section-label"><MapPin size={15}/><span>AT YOUR STOP</span><span className="pill">STOP {String(selectedStop.seq).padStart(2, '0')}</span></div><div className="arrival-content"><div><h2>{selectedStop.name.split(',')[0]}</h2><p>{selectedStop.nameTc}</p><span className="muted">{routeMatches ? `Route ${selection.route} · ${selection.direction}` : `${route.route} · previously loaded route`}</span></div><div className="arrival-times">{fresh(selectedFeed, now) && routeMatches ? selectedFeed!.arrivals.filter(a => Date.parse(a.eta) > now - 10_000).slice(0, 3).map((a, i) => <div key={`${a.eta}-${i}`} className={i === 0 ? 'next-arrival' : ''}><strong>{Math.max(0, Math.ceil((Date.parse(a.eta) - now) / 60_000)) || 'Due'}</strong><span>{Date.parse(a.eta) - now > 0 ? 'min' : 'now'}</span><small>{mode === 'demo' ? 'DEMO' : a.remark || 'ESTIMATED'}</small></div>) : null}{(!routeMatches || !fresh(selectedFeed, now) || !selectedFeed?.arrivals.some(a => Date.parse(a.eta) > now - 10_000)) && <div className="no-arrivals"><strong>—</strong><span>{selectedFeed?.error ? 'Temporarily unavailable' : selectedFeed && !fresh(selectedFeed, now) ? 'Data is stale' : 'No current arrivals'}</span><small>{feed ? 'No estimate available; this does not confirm the end of service.' : 'Waiting for the operator feed'}</small></div>}</div></div></section><section className="insight-card"><div className="section-label"><RouteIcon size={15}/><span>A NOTE FOR YOUR JOURNEY</span></div><h2>A prediction, with perspective.</h2><p>Traffic, dwell time, and changing predictions affect where a bus might be. Use the arrival board to plan, and treat the little buses as a guide.</p><a href="https://www.hkemobility.gov.hk/en/traffic-information/live-traffic" target="_blank" rel="noreferrer">Check Hong Kong traffic <ExternalLink size={13}/></a></section></div>
+      <footer><span><span className="footer-logo">kai tak.</span> A small window into your daily journey.</span><div><a href="https://data.gov.hk/en/" target="_blank" rel="noreferrer">HK Open Data <ArrowUpRight size={12}/></a><button onClick={() => setInfo(true)}>Sources & limitations</button><span>Times in HKT · UTC+8</span></div></footer>
+    </main>
+    {toast && <div className="toast" role="status">{toast}<button onClick={() => setToast('')} aria-label="Dismiss notification"><X size={15}/></button></div>}
+    {info && <div className="modal-backdrop" onClick={() => setInfo(false)}><section className="modal" role="dialog" aria-modal="true" aria-labelledby="info-title" onClick={e => e.stopPropagation()}><button className="modal-close" onClick={() => setInfo(false)} aria-label="Close information"><X size={20}/></button><span className="eyebrow">BEHIND THE LITTLE BUSES</span><h2 id="info-title">Useful estimates. Honest limits.</h2><p><strong>Arrivals are live; positions are inferred.</strong> Citybus and KMB publish predicted arrival times, not vehicle coordinates or vehicle IDs. Markers represent possible activity between neighbouring stops. They cannot tell you which physical bus is moving, or how many buses are on the road.</p><p>We use fresh predictions at adjacent stops and an assumed travel speed. When predictions suggest a bus has left one stop and is close to the next, we interpolate its position. Old or missing predictions produce no marker. Refreshes can move or remove estimates.</p><p><strong>The dotted route connects stops.</strong> It is a schematic, not a verified road path. Tilt view changes the camera angle; 3D buildings and exact road geometry are future work.</p><p>22D is a <strong>Citybus</strong> route. Current route metadata determines its destinations; it should not be assumed to serve the cruise terminal. Select KMB when checking a KMB route.</p><p><strong>Sources:</strong> <a href="https://data.gov.hk/en/" target="_blank" rel="noreferrer">Hong Kong Open Data</a>, Citybus / KMB ETA APIs; OpenStreetMap contributors. The bundled 22D stop snapshot was retrieved on 26 October 2026 from <a href="https://github.com/hkbus/hk-bus-crawling" target="_blank" rel="noreferrer">HK Bus Crawling</a>. Demo arrivals are synthetic. Optional traffic tiles are supplied by TomTom, with independent coverage and refresh times.</p><button className="primary-button" onClick={() => setInfo(false)}>Got it <Check size={16}/></button></section></div>}
+    {editing && <div className="modal-backdrop" onClick={() => setEditing(false)}><form className="modal route-modal" role="dialog" aria-modal="true" aria-labelledby="route-title" onSubmit={applyRoute} onClick={e => e.stopPropagation()}><button type="button" className="modal-close" onClick={() => setEditing(false)} aria-label="Close route selection"><X size={20}/></button><span className="eyebrow">FIND YOUR BUS</span><h2 id="route-title">A different route?</h2><label>Operator<select value={draftOperator} onChange={e => setDraftOperator(e.target.value as Operator)}><option value="ctb">Citybus 城巴</option><option value="kmb">KMB 九巴</option></select></label><label>Route number<input autoFocus required maxLength={8} pattern="[A-Za-z0-9]{1,8}" value={draftRoute} onChange={e => setDraftRoute(e.target.value)} placeholder="e.g. 22D"/></label>{draftOperator === 'kmb' && <label>Service type<input required type="number" min="1" max="99" value={draftService} onChange={e => setDraftService(e.target.value)}/><small>Usually 1 for the regular service.</small></label>}<p>Live routes are loaded from the operator. The demo is available for Citybus 22D.</p><button type="submit" className="primary-button">Show route <ArrowRight size={16}/></button></form></div>}
+  </div>;
+}

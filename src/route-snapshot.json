@@ -1,0 +1,176 @@
+[
+  {
+    "operator": "ctb",
+    "route": "22D",
+    "direction": "inbound",
+    "serviceType": "1",
+    "origin": "Kai Tak Runway Area",
+    "destination": "Kai Tak Station (Exit A)",
+    "stops": [
+      {
+        "id": "003535",
+        "seq": 1,
+        "name": "Miami Quay, Shing Fung Road",
+        "nameTc": "Miami Quay, 承豐道",
+        "lat": 22.31184,
+        "lng": 114.20791
+      },
+      {
+        "id": "003907",
+        "seq": 2,
+        "name": "The Pavilia Forest, Shing Fung Road",
+        "nameTc": "柏蔚森, 承豐道",
+        "lat": 22.309,
+        "lng": 114.2111
+      },
+      {
+        "id": "003790",
+        "seq": 3,
+        "name": "Shing King Street, Shing Fung Road",
+        "nameTc": "承景街, 承豐道",
+        "lat": 22.30973,
+        "lng": 114.20999
+      },
+      {
+        "id": "003520",
+        "seq": 4,
+        "name": "Cullinan Harbour, Shing Fung Road",
+        "nameTc": "天璽．海, 承豐道",
+        "lat": 22.31189,
+        "lng": 114.20758
+      },
+      {
+        "id": "003890",
+        "seq": 5,
+        "name": "Victoria Voyage, Shing Fung Road",
+        "nameTc": "維港．灣畔, 承豐道",
+        "lat": 22.31445,
+        "lng": 114.20471
+      },
+      {
+        "id": "003877",
+        "seq": 6,
+        "name": "Twin Victoria, Shing Fung Road",
+        "nameTc": "維港．雙鑽, 承豐道",
+        "lat": 22.31568,
+        "lng": 114.20301
+      },
+      {
+        "id": "003885",
+        "seq": 7,
+        "name": "Shing Fung Road Park, Shing Fung Road",
+        "nameTc": "承豐道公園, 承豐道",
+        "lat": 22.3203,
+        "lng": 114.19956
+      },
+      {
+        "id": "003708",
+        "seq": 8,
+        "name": "Muk Tai Street, Shing Kai Road",
+        "nameTc": "沐泰街, 承啟道",
+        "lat": 22.3252,
+        "lng": 114.20054
+      },
+      {
+        "id": "003612",
+        "seq": 9,
+        "name": "EMSD Headquarters, Shing Kai Road",
+        "nameTc": "機電工程署總部, 承啟道",
+        "lat": 22.32625,
+        "lng": 114.20238
+      },
+      {
+        "id": "003880",
+        "seq": 10,
+        "name": "Kai Tak - MTR Exit A, Muk On Street",
+        "nameTc": "啟德 - 港鐵 A 出口, 沐安街",
+        "lat": 22.32973,
+        "lng": 114.2011
+      }
+    ],
+    "snapshot": true
+  },
+  {
+    "operator": "ctb",
+    "route": "22D",
+    "direction": "outbound",
+    "serviceType": "1",
+    "origin": "Kai Tak Station (Exit A)",
+    "destination": "Kai Tak Runway Area",
+    "stops": [
+      {
+        "id": "003587",
+        "seq": 1,
+        "name": "Kai Tak - MTR Exit A, Muk On Street",
+        "nameTc": "啟德 - 港鐵 A 出口, 沐安街",
+        "lat": 22.32976,
+        "lng": 114.20116
+      },
+      {
+        "id": "003611",
+        "seq": 2,
+        "name": "EMSD Headquarters, Shing Kai Road",
+        "nameTc": "機電工程署總部, 承啟道",
+        "lat": 22.32617,
+        "lng": 114.2026
+      },
+      {
+        "id": "003884",
+        "seq": 3,
+        "name": "Shing Fung Road Park, Shing Fung Road",
+        "nameTc": "承豐道公園, 承豐道",
+        "lat": 22.32023,
+        "lng": 114.19976
+      },
+      {
+        "id": "003535",
+        "seq": 4,
+        "name": "Miami Quay, Shing Fung Road",
+        "nameTc": "Miami Quay, 承豐道",
+        "lat": 22.31184,
+        "lng": 114.20791
+      },
+      {
+        "id": "003907",
+        "seq": 5,
+        "name": "The Pavilia Forest, Shing Fung Road",
+        "nameTc": "柏蔚森, 承豐道",
+        "lat": 22.309,
+        "lng": 114.2111
+      },
+      {
+        "id": "003790",
+        "seq": 6,
+        "name": "Shing King Street, Shing Fung Road",
+        "nameTc": "承景街, 承豐道",
+        "lat": 22.30973,
+        "lng": 114.20999
+      },
+      {
+        "id": "003520",
+        "seq": 7,
+        "name": "Cullinan Harbour, Shing Fung Road",
+        "nameTc": "天璽．海, 承豐道",
+        "lat": 22.31189,
+        "lng": 114.20758
+      },
+      {
+        "id": "003890",
+        "seq": 8,
+        "name": "Victoria Voyage, Shing Fung Road",
+        "nameTc": "維港．灣畔, 承豐道",
+        "lat": 22.31445,
+        "lng": 114.20471
+      },
+      {
+        "id": "003877",
+        "seq": 9,
+        "name": "Twin Victoria, Shing Fung Road",
+        "nameTc": "維港．雙鑽, 承豐道",
+        "lat": 22.31568,
+        "lng": 114.20301
+      }
+    ],
+    "snapshot": true
+  }
+]
