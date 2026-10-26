@@ -3,12 +3,21 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createProvider, selectionFrom } from './provider.mjs';
 import { createGeometryProvider } from './geometry.mjs';
+import { createTrafficProvider } from './traffic.mjs';
 
 export function createApp(provider = createProvider()) {
   const app = express();
   app.disable('x-powered-by');
   app.use((_req, res, next) => { res.set('X-Content-Type-Options', 'nosniff'); next(); });
   app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
+  const traffic = createTrafficProvider();
+  app.get('/api/traffic', async (_req, res) => {
+    try { res.set('Cache-Control', 'public, max-age=30').json(await traffic()); }
+    catch (error) {
+      console.error('[traffic]', error.message);
+      res.set('Cache-Control', 'no-store').status(502).json({ error: 'Transport Department traffic data unavailable. No speed colours are shown.' });
+    }
+  });
   const endpoints = { route: provider.route, etas: provider.etas, geometry: createGeometryProvider(provider) };
   for (const endpoint of Object.keys(endpoints)) {
     app.get(`/api/${endpoint}`, async (req, res) => {
