@@ -1,12 +1,10 @@
 # Kai Tak bus monitor
 
-A responsive 2D bus monitor centred on Kai Tak, with a zoomable OpenStreetMap map, bilingual stop markers, an arrival board, operator/route/direction selection, and deliberately labelled ETA-based position hypotheses. MapLibre supports a future move to vector maps and 3D buildings. The current tilt view only changes camera perspective.
+A responsive bus monitor for Kai Tak, using live Citybus/KMB arrivals and estimated positions along road paths. The preset routes are **Citybus 22D (teal), 22S (orange), and 22X (purple)**. Select up to three routes with the checkboxes, use **Show all 3** to compare the presets, and tap a route number or a map stop/bus to open its arrival board. Changing direction affects that route only. Shared links preserve all selected routes and their directions.
 
-**Route correction:** 22D is a **Citybus** route, not KMB. The bundled snapshot lists Kai Tak Station (Exit A) → Kai Tak Runway Area. Do not assume it serves Kai Tak Cruise Terminal. Live mode loads the operator’s current stop list rather than hard-coding these destinations. KMB routes are also supported through a separate adapter.
+## Development and deployment
 
-## Run locally
-
-Node.js 22 or newer is required (24 was used for validation).
+Node.js 22+ is required; Node 24 was validated.
 
 ```sh
 cd /workspace/KMB
@@ -14,45 +12,44 @@ npm ci
 npm run dev
 ```
 
-Vite serves the interface on port 5173 and proxies `/api` to the Node server on port 3001. For a production build:
+Vite serves port 5173 and proxies `/api` to port 3001. For production:
 
 ```sh
 npm run build
 npm start
 ```
 
-The production server serves the built app and API on `PORT` (default 3001). `/api/health` checks process readiness; it does **not** claim upstream feeds are available. The server uses fixed government URLs, validates route inputs, limits upstream concurrency to four, shares in-flight requests, caches stop metadata and arrivals, and reports partial outages. There is no database or required API key. Ten friends can use the same deployment and benefit from its shared 30-second ETA cache.
+The Node server serves the built UI and API on `PORT` (default 3001). `/api/health` checks server health, not upstream availability. The server respects existing HTTPS proxy and NO_PROXY configuration, preserves TLS verification, limits upstream concurrency, shares in-flight requests, and caches arrivals for 30 seconds. One failed route does not stop other routes updating. No database or required API key is needed.
 
-## Live data, demo, and limits
+`render.yaml` configures a Render Node web service with `npm ci && npm run build`, `npm start`, Node 24 and `/api/health`. Connect GitHub branch `main` in Render; pushes can trigger automatic deployment if enabled. Share the service's public HTTPS address. A free service may sleep between visits. The app is public to anyone with its address; it has no access controls. GitHub Pages cannot run its shared Node API.
 
-- Citybus: `https://rt.data.gov.hk/v2/transport/citybus` (route, route-stop, stop, ETA).
-- KMB: `https://data.etabus.gov.hk/v1/transport/kmb` (route, route-stop, stop, ETA).
-- The browser requests our same-origin `/api` endpoints, so deployment does not depend on government browser CORS policies.
-- Live mode polls every 30 seconds. Demo mode polls synthetic arrivals every 10 seconds; it never silently replaces live data. A shared URL includes the current selection and labels demos using `?demo=1`.
-- Stops/ETAs are matched by route direction **and stop sequence**. For Citybus 22D, the adapter combines both official stop lists to map its continuous loop ETA sequence and mid-route direction change back to the published legs. KMB service type is also checked; use the route form for special variants.
-- Government predictions contain no vehicle IDs or GPS coordinates. Independent segment hypotheses are **not a fleet count** and cannot follow a specific physical bus. Markers can jump or disappear as predictions change.
-- The estimator looks for an imminent downstream ETA and rejects matching future arrivals upstream. Where a recent upstream departure is available it brackets progress; otherwise it assumes 20 km/h plus dwell time. Confidence remains low or moderate. It excludes failed, missing, or older-than-90-second source timestamps. A refresh does not make stale source data fresh.
-- Map lines connect published stop coordinates directly. They are **schematic**, not road-snapped, and may cross water/buildings. Exact operator/GTFS shapes are needed before claiming to follow the designated road path. Markers interpolate along these same schematic segments. An absent marker does not establish that no bus is operating.
-- Stop snapshot source: [HK Bus Crawling](https://github.com/hkbus/hk-bus-crawling/tree/gh-pages), `routeFareList.min.json`, retrieved 2026-10-26. Only 22D stop names, coordinates and direction metadata are bundled. No upstream program code was copied. Live metadata supersedes this snapshot. Public data and map attribution should be retained; review source terms before broader commercial redistribution.
-- Basemap: © [OpenStreetMap contributors](https://www.openstreetmap.org/copyright). Standard OSM tiles are suitable for a small interactive prototype under their [tile usage policy](https://operations.osmfoundation.org/policies/tiles/); do not bulk-download or prefetch them. For larger traffic, choose a supported tile provider.
+## Sources and interpretation
 
-## Optional live traffic
+- Live arrivals and stop metadata: Citybus at `rt.data.gov.hk/v2/transport/citybus`, KMB at `data.etabus.gov.hk/v1/transport/kmb`, via our same-origin API. Stop/direction/service selection is validated. Citybus 22D's unusual continuous loop ETA sequence is mapped from both official stop lists, including its mid-outbound direction change.
+- Stops for both directions of 22D, 22S and 22X were saved from the official Citybus API on 26 October 2026. Live mode refreshes operator metadata; explicit demo mode (`?demo=1`) uses these snapshots and **synthetic** arrivals. It never silently replaces a failed live feed.
+- 22D serves Kai Tak Station / Kai Tak Runway Area; 22S metadata says Kai Tak–AIRSIDE / Kai Tak Hospital–Cruise Terminal; 22X is One Victoria / Kai Tak Station. Refer to the operator's current stop list for actual service coverage and operating hours. Absence of ETAs is not proof no service exists.
+- Map tiles and road data: © [OpenStreetMap contributors](https://www.openstreetmap.org/copyright), under their applicable licences/attribution requirements. Respect the [standard tile usage policy](https://operations.osmfoundation.org/policies/tiles/); do not bulk-download or prefetch. Choose a tile provider for larger traffic.
+- Road paths use [OSRM](https://project-osrm.org/) driving routes **through every stop**, preserving each leg's bends. They are estimates rather than official operator route shapes; bus-only turns, service variations, new roads and diversions can differ. Bus positions interpolate by distance along these same road paths, with arrows following their local heading. Saved paths for all six preset directions avoid a new routing request for each viewer; signatures prevent applying them to changed stop coordinates. Other routes use cached server-side road routing. If routing fails, stops and arrivals remain available while the line/vehicle markers are omitted; no diagonal line is substituted.
+- ETA feeds contain **no GPS coordinates or vehicle IDs**. Markers are independent location hypotheses, not identified buses or a fleet count. The estimator uses adjacent-stop ETAs and a simple travel-time assumption. It rejects stale predictions older than 90 seconds, failed stops and ambiguous upstream arrivals. Predictions can move or remove markers on refresh.
+- Click a bus to select its **hollow dotted trail**. That trail represents inferred progress through the displayed route; it is not recorded GPS history or confirmed stops visited by a physical vehicle. Solid lines and chevrons show the road ahead / travel direction. The legend matches route colours.
+- Bus artwork is an original SVG Hong Kong double-decker illustration bundled with the app.
 
-With no traffic provider configured, the traffic control explicitly says unavailable and links to HKeMobility. It does not invent congestion from bus ETAs.
+## HKeMobility traffic
 
-For real traffic flow tiles, create a TomTom developer key and set `VITE_TOMTOM_API_KEY` **before building**. See `.env.example`. This key is embedded in the browser bundle by design: restrict it to your deployment hostname, set quota limits, and check provider pricing/terms. Rebuild after changes. The toggle overlays TomTom relative flow tiles on the base map. Traffic freshness/coverage is independent of bus predictions; no speed history or incidents are collected. This optional integration has not been checked with a real key.
+The traffic control opens the official [HKeMobility live speed-map page](https://www.hkemobility.gov.hk/en/traffic-information/live/smp) in a separate tab. HKeMobility also provides traffic cameras and news there. No paid traffic key is required. HKeMobility sets `X-Frame-Options: SAMEORIGIN` / `frame-ancestors 'self'`, so its page cannot be embedded in this app. This is a direct connection to the official traffic service, **not an in-map congestion overlay**. Bus ETAs are not used to invent traffic conditions. The old unconfigured TomTom toggle has been removed; no TomTom key is consumed.
 
-## Share on the internet
+## Refreshing road snapshots
 
-`render.yaml` defines a single Node web service with a production build and health check. To publish:
+When the preset stop lists change, first refresh `src/route-snapshot.json` from the operator, then deliberately run:
 
-1. Commit this project and push it to your GitHub repository.
-2. Sign into Render, create a **Blueprint**, and connect `royalchun/KMB` using `render.yaml`. Alternatively create a Node Web Service with build `npm ci && npm run build`, start `npm start`, and health path `/api/health`.
-3. Confirm the page loads and that a real stop shows fresh ETA data. Share the HTTPS address using **Share monitor**. A sleeping free service can take time to wake up; choose a paid always-on plan if this matters. Hosting availability and pricing can change.
+```sh
+node scripts/refresh-road-snapshots.mjs
+npm run build
+```
 
-No deployment account is connected in this workspace; no public site has been created. The repository is initially unborn, and onboarding's saved filesystem snapshot should be preserved until you commit/push the project. No Git push is performed by setup. A link is public to anyone who has it; access control is not implemented. Avoid GitHub Pages for this version: its static hosting cannot run the shared API server.
+This requests six OSRM road routes, validates snaps and coordinates, and updates `server/road-snapshots.json` and the client snapshots. Installation does not automatically contact the public routing server. For a larger deployment use your own OSRM instance or a contracted routing provider rather than relying on the public demonstration server.
 
-## Checks
+## Validation
 
 ```sh
 npm test
@@ -60,10 +57,10 @@ npm run build
 npm run test:e2e
 ```
 
-The browser suite uses Chromium at `/usr/bin/chromium` (override `CHROMIUM_PATH` for another installed Chromium). It runs the production server. Build before running it. Tests deliberately abort external map tile requests instead of bulk-downloading them. Government API responses are fixtures for integration tests; passing them does not establish real feed access. E2E checks exercise failure/demo separation, map markers and zoom, direction changes, route and share selection, stale feeds, dialogs, and mobile layout. Screenshots go in ignored `test-results/`.
+The browser suite launches a fresh production server on **3101**, separate from the development server. Chromium defaults to `/usr/bin/chromium`; override `CHROMIUM_PATH` for another installed Chromium. Browser tests use API fixtures and abort external map tile requests. They exercise three-route visibility/focus/sharing, individual feed failures, stale predictions, zoom, direction changes, mobile layout and the official traffic link. Unit tests cover routing/cache validation, road bends, directional interpolation, progress trimming, both operators and the 22D loop mapping. Screenshots are in ignored `test-results/`.
 
-**Live validation (26 October 2026):** after adding the required egress domains and enabling proxy-aware server requests, real Citybus 22D metadata and fresh arrivals were retrieved for all 9 outbound and 10 inbound stops. KMB 5R returned 18 stops with arrivals. A live browser smoke check displayed 9 stop markers, a position hypothesis, and real map tiles with no client errors. The cloud Chromium profile rejects the platform proxy certificate for external requests, so that visual check transferred 24 real tiles through the TLS-verified Node proxy client; direct external tile loading in Chromium remains limited by its trust store. No certificate verification was disabled. Normal users’ browsers fetch OSM tiles directly. The cloud configuration draft retains those domain additions for publication. The server honours the existing HTTPS proxy and NO_PROXY settings without disabling TLS verification. No live GPS, exact road shape, full 3D model, public deployment, or verified traffic overlay is claimed.
+Real checks during this upgrade retrieved live stops/arrivals for all three routes, generated road geometry for all six preset directions, and received HTTP 200 from the official HKeMobility traffic page. The cloud Chromium trust store rejects the platform proxy certificate for external tiles; visual checks can transfer real tiles through the TLS-verified Node proxy client without disabling verification. Normal visitors' browsers request tiles directly. Verify the public Render URL after deployment.
 
-## Future 3D upgrade
+## Future 3D
 
-The renderer is MapLibre GL JS rather than a 2D-only renderer. Introduce a licensed vector basemap with building heights and a `fill-extrusion` layer; replace the schematic line with authoritative route geometry and project estimates along that geometry. Vehicle models can then use a custom 3D layer. Better estimates require timestamp history, calibrated segment travel times, and ideally an operator vehicle-position feed; 3D rendering alone cannot improve location accuracy.
+No additional ChatGPT plugin is required: MapLibre already supports camera pitch, vector maps, building extrusions and custom model layers. A future implementation can introduce vector tiles/building heights or a licensed 3D provider and bus models. A provider account/key may be needed for its data. Current **Tilt view** only changes camera perspective; this upgrade does not add 3D buildings. Rendering in 3D cannot turn ETA estimates into GPS tracking.

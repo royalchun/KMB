@@ -2,20 +2,22 @@ import express from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createProvider, selectionFrom } from './provider.mjs';
+import { createGeometryProvider } from './geometry.mjs';
 
 export function createApp(provider = createProvider()) {
   const app = express();
   app.disable('x-powered-by');
   app.use((_req, res, next) => { res.set('X-Content-Type-Options', 'nosniff'); next(); });
   app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
-  for (const endpoint of ['route', 'etas']) {
+  const endpoints = { route: provider.route, etas: provider.etas, geometry: createGeometryProvider(provider) };
+  for (const endpoint of Object.keys(endpoints)) {
     app.get(`/api/${endpoint}`, async (req, res) => {
       let selection;
       try { selection = selectionFrom(req.query); }
       catch (err) { return res.status(400).json({ error: err.message }); }
       try {
         res.set('Cache-Control', 'public, max-age=15');
-        res.json(await provider[endpoint](selection));
+        res.json(await endpoints[endpoint](selection));
       } catch (err) {
         console.error(`[${endpoint}]`, err.message);
         res.set('Cache-Control', 'no-store').status(502).json({ error: 'Live data could not be loaded. The operator may be unavailable or the route may not exist. You can retry or explore the demo.' });

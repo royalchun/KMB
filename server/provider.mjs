@@ -37,7 +37,7 @@ export function createProvider(fetcher = upstreamFetch, clock = Date.now) {
     if (cache.get(key)?.until > clock()) return cache.get(key).value;
     if (pending.has(key)) return pending.get(key);
     const request = load().then(value => {
-      if (cache.size >= 100) cache.delete(cache.keys().next().value);
+      if (cache.size >= 256) cache.delete(cache.keys().next().value);
       cache.set(key, { until: clock() + ttl, value });
       return value;
     }).finally(() => pending.delete(key));

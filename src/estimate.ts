@@ -1,4 +1,5 @@
 import type { BusEstimate, Feed, Route, Stop, StopEtas } from './types';
+import { along } from './geometry';
 
 export const FRESH_MS = 90_000;
 export function fresh(stop: StopEtas | undefined, now: number) {
@@ -42,8 +43,10 @@ export function estimateBuses(route: Route, feed: Feed | null, now: number): Bus
     const t = Math.max(0.05, Math.min(0.95, progress));
     // Suppress another hypothesis immediately beside an existing one.
     if (estimates.some(bus => distance({ ...next, lat: bus.lat, lng: bus.lng }, next) < 80)) continue;
-    estimates.push({ id: `${next.id}-${eta}`, lat: previous.lat + (next.lat - previous.lat) * t,
-      lng: previous.lng + (next.lng - previous.lng) * t, nextStop: next,
+    const road = route.geometry?.segments[i - 1];
+    const position = road ? along(road, t) : null;
+    estimates.push({ id: `${next.id}-${eta}`, lat: position?.point[1] ?? previous.lat + (next.lat - previous.lat) * t,
+      lng: position?.point[0] ?? previous.lng + (next.lng - previous.lng) * t, bearing: position?.bearing, nextStop: next,
       seconds, progress: t, segment: i, confidence: departed === undefined ? 'low' : 'medium' });
   }
   return estimates;

@@ -90,14 +90,15 @@ test('mobile demo has no horizontal overflow and supports route selection', asyn
   await page.screenshot({ path: 'test-results/mobile-demo.png', fullPage: true });
 });
 
-test('help explains uncertainty, keyboard closes dialogs, traffic has an honest unavailable state', async ({ page }) => {
+test('help explains uncertainty, keyboard closes dialogs, traffic opens official HKeMobility', async ({ page }) => {
   await page.goto('/?demo=1');
   await page.getByRole('button', { name: 'How it works' }).click();
   await expect(page.getByRole('dialog')).toContainText('not vehicle coordinates or vehicle IDs');
   await page.keyboard.press('Escape');
   await expect(page.getByRole('dialog')).toHaveCount(0);
-  await page.getByRole('button', { name: 'Traffic', exact: true }).click();
-  await expect(page.getByText('Traffic overlay is not configured.', { exact: false })).toBeVisible();
+  const traffic = page.getByRole('link', { name: 'Open HKeMobility live traffic' });
+  await expect(traffic).toHaveAttribute('href', 'https://www.hkemobility.gov.hk/en/traffic-information/live/smp');
+  await expect(traffic).toHaveAttribute('target', '_blank');
 });
 
 test('desktop demo screenshot and no client errors', async ({ page }) => {
@@ -109,4 +110,53 @@ test('desktop demo screenshot and no client errors', async ({ page }) => {
   await page.waitForTimeout(1000);
   await page.screenshot({ path: 'test-results/desktop-demo.png', fullPage: true });
   expect(errors).toEqual([]);
+});
+
+test('three routes can be compared, hidden, focused, and shared independently', async ({ page, context }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  await page.goto('/?demo=1');
+  await page.getByRole('button', { name: 'Show all 3', exact: true }).click();
+  await expect(page.getByRole('checkbox', { name: 'Show route 22D', exact: true })).toBeChecked();
+  await expect(page.getByRole('checkbox', { name: 'Show route 22S', exact: true })).toBeChecked();
+  await expect(page.getByRole('checkbox', { name: 'Show route 22X', exact: true })).toBeChecked();
+  await expect(page.locator('.map-stop')).toHaveCount(22);
+  await expect(page.locator('.map-shell')).toHaveAttribute('data-road-routes', '3');
+  await expect(page.locator('.map-bus[data-route="22S"]').first()).toBeVisible();
+  await expect(page.locator('.map-bus[data-route="22X"]').first()).toBeVisible();
+  const colors = await page.locator('.route-choice').evaluateAll(items => items.map(item => getComputedStyle(item).getPropertyValue('--route-color')));
+  expect(new Set(colors).size).toBe(3);
+  await page.getByRole('button', { name: 'View route 22X arrivals', exact: true }).click();
+  await expect(page.locator('.route-number')).toHaveText('22X');
+  await expect(page.locator('.stop-list button')).toHaveCount(2);
+  await page.getByRole('checkbox', { name: 'Show route 22S', exact: true }).uncheck();
+  await expect(page.locator('.map-stop[data-route="22S"]')).toHaveCount(0);
+  await expect(page.locator('.map-bus[data-route="22S"]')).toHaveCount(0);
+  await expect(page.locator('.map-stop')).toHaveCount(11);
+  await page.getByRole('button', { name: 'Share monitor' }).click();
+  const link = await page.evaluate(() => navigator.clipboard.readText());
+  await page.goto(link);
+  await expect(page.getByRole('checkbox', { name: 'Show route 22X', exact: true })).toBeChecked();
+  await expect(page.locator('.route-number')).toHaveText('22X');
+  await expect(page.getByRole('checkbox', { name: 'Show route 22S', exact: true })).not.toBeChecked();
+  await expect(page.locator('.map-stop')).toHaveCount(11);
+});
+
+test('one failed route leaves other live routes and their arrival boards usable', async ({ page }) => {
+  await page.route('**/api/route?*', request => {
+    const selection = new URL(request.request().url()).searchParams;
+    if (selection.get('route') === '22S') return request.fulfill({ status: 502, json: { error: '22S feed unavailable' } });
+    return request.fulfill({ json: { ...snapshots.find(s => s.route === selection.get('route') && s.direction === selection.get('direction'))!, snapshot: false } });
+  });
+  await page.route('**/api/etas?*', request => {
+    const params = new URL(request.request().url()).searchParams;
+    const route = snapshots.find(s => s.route === params.get('route') && s.direction === params.get('direction'))!;
+    return request.fulfill({ json: demoFeed(route, Date.now(), Date.now()) });
+  });
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Show all 3', exact: true }).click();
+  await expect(page.locator('.route-error')).toContainText('22S: arrivals unavailable');
+  await expect(page.locator('.map-stop[data-route="22X"]')).toHaveCount(2);
+  await page.getByRole('button', { name: 'View route 22X arrivals', exact: true }).click();
+  await expect(page.locator('.status-chip')).toHaveText('LIVE ARRIVALS');
+  await expect(page.locator('.map-bus[data-route="22X"]').first()).toBeVisible();
 });
