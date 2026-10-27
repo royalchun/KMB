@@ -98,3 +98,27 @@ describe('Government data adapters', () => {
     expect(Date.parse(result.stops[0].generatedAt)).toBe(Date.parse(old));
   });
 });
+
+describe('Citybus shared-leg loop mappings',()=>{
+ for(const route of ['22X','22S'])it(`${route} keeps the repeated origin separate from its return occurrence`,async()=>{
+  const outward=route==='22X'?['a','b']:['a','b','c','d'];
+  const returning=route==='22X'?['b','a']:['c','d','e','a'];
+  const sequence=route==='22X'?{a:3,b:2}:{a:6,b:2,c:3,d:4,e:5};
+  const get=mockFetch(url=>{
+   if(url.includes('/route-stop/'))return{data:(url.endsWith('outbound')?outward:returning).map((stop,i)=>({stop,seq:i+1}))};
+   if(url.includes('/eta/')){
+    const id=url.split('/').at(-2);const origin={dir:'O',seq:1,eta:'2026-10-26T12:01:00+08:00'};
+    const end={dir:'I',seq:sequence[id],eta:'2026-10-26T12:03:00+08:00'};
+    const rows=id==='a'?[origin,end]:[{...end,dir:route==='22S'&&id==='b'?'O':'I'}];
+    return{generated_timestamp:stamp,data:rows};
+   }
+   return fixture(url);
+  });
+  const p=createProvider(get);
+  const out=await p.etas({...selection,route}),back=await p.etas({...selection,route,direction:'inbound'});
+  expect(out.stops[0].arrivals[0].eta).toContain('12:01:00');
+  expect(out.stops.at(-1).arrivals).toHaveLength(1);
+  expect(back.stops.map(s=>s.arrivals.length)).toEqual(returning.map(()=>1));
+  expect(back.stops.at(-1).arrivals[0].eta).toContain('12:03:00');
+ });
+});

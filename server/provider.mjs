@@ -60,19 +60,22 @@ export function createProvider(fetcher = upstreamFetch, clock = Date.now) {
         throw new Error('This route or direction has no published stop list. Try the opposite direction.');
       }
       const refs = rawStops.data.toSorted((a, b) => Number(a.seq) - Number(b.seq));
-      // 22D is a loop: the route-stop API restarts inbound sequence numbers,
-      // but ETA uses one continuous sequence and switches to I mid-outbound.
-      // Derive the mapping from both official lists, never relax matching for
-      // unrelated routes or combine predictions by ETA rank.
-      let loopRefs, returnRefs;
-      if (s.operator === 'ctb' && s.route === '22D') {
-        const other = await get(`${base}/route-stop/CTB/22D/${s.direction === 'outbound' ? 'inbound' : 'outbound'}`);
-        if (!Array.isArray(other.data) || !other.data.length) throw new Error('The 22D loop stop mapping is unavailable.');
-        const outward = s.direction === 'outbound' ? refs : other.data.toSorted((a, b) => Number(a.seq) - Number(b.seq));
-        returnRefs = s.direction === 'inbound' ? refs : other.data.toSorted((a, b) => Number(a.seq) - Number(b.seq));
-        loopRefs = [...outward, ...returnRefs.filter(ref => !outward.some(o => o.stop === ref.stop))];
+      // These Citybus services publish two overlapping legs but continuous
+      // ETA numbering. Retain repeated origin/terminal occurrences (22X A-B-A)
+      // and map each leg's occurrence, rather than deduplicating stop IDs.
+      let returnStart;
+      if (s.operator === 'ctb' && ['22D','22S','22X'].includes(s.route)) {
+        const other = await get(`${base}/route-stop/CTB/${s.route}/${s.direction === 'outbound' ? 'inbound' : 'outbound'}`);
+        if (!Array.isArray(other.data) || !other.data.length) throw new Error('The loop stop mapping is unavailable.');
+        const outward = s.direction === 'outbound' ? refs : other.data.toSorted((a,b)=>Number(a.seq)-Number(b.seq));
+        const returning = s.direction === 'inbound' ? refs : other.data.toSorted((a,b)=>Number(a.seq)-Number(b.seq));
+        for(let overlap=Math.min(outward.length,returning.length);overlap>0;overlap--){
+          if(outward.slice(-overlap).every((stop,index)=>stop.stop===returning[index].stop)){
+            returnStart=outward.length-overlap;break;
+          }
+        }
       }
-      const stops = await mapLimited(refs, async ref => {
+      const stops = await mapLimited(refs, async (ref, index) => {
         const raw = await cached(`stop:${s.operator}:${ref.stop}`, 24 * 60 * 60 * 1000, () => get(`${base}/stop/${ref.stop}`));
         const stop = Array.isArray(raw.data) ? raw.data[0] : raw.data;
         const lat = Number(stop?.lat), lng = Number(stop?.long);
@@ -80,7 +83,7 @@ export function createProvider(fetcher = upstreamFetch, clock = Date.now) {
           throw new Error('The data service returned invalid stop coordinates.');
         }
         return { id: ref.stop, seq: Number(ref.seq), name: stop.name_en, nameTc: stop.name_tc, lat, lng,
-          ...(loopRefs ? { etaSeq: loopRefs.findIndex(r => r.stop === ref.stop) + 1, etaDirection: returnRefs.some(r => r.stop === ref.stop) ? 'I' : 'O' } : {}) };
+          ...(returnStart !== undefined ? { etaSeq: (s.direction === 'outbound' ? index : index + returnStart) + 1, etaDirection: s.direction === 'inbound' || index >= returnStart ? 'I' : 'O' } : {}) };
       });
       const reverse = s.operator === 'ctb' && s.direction === 'inbound';
       return { ...s, origin: reverse ? metadata.dest_en : metadata.orig_en,

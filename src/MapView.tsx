@@ -18,7 +18,7 @@ export default function MapView({ routes, activeKey, selected, onSelect, tilted,
   const [tileFailed, setTileFailed] = useState(false);
   const [fatal, setFatal] = useState(false);
   const [focusId, setFocusId] = useState('');
-  const trafficFeed = useTraffic(traffic);
+  const trafficFeed = useTraffic(traffic, routes.map(r => r.route));
   const flatCamera = useRef<{ center: maplibregl.LngLat; zoom: number } | null>(null);
   const selectRef = useRef(onSelect); selectRef.current = onSelect;
   const routesRef = useRef(routes); routesRef.current = routes;
@@ -59,7 +59,7 @@ export default function MapView({ routes, activeKey, selected, onSelect, tilted,
         instance.addLayer({ id: 'trail-hole', type: 'line', source: 'trail', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#fff', 'line-width': 3, 'line-dasharray': [.1, 2.9] } });
         instance.addSource('toy-buses', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
         instance.addLayer({ id: 'toy-bus-models', type: 'fill-extrusion', source: 'toy-buses', layout: { visibility: 'none' }, paint: { 'fill-extrusion-color': ['get','color'], 'fill-extrusion-height': ['get','height'], 'fill-extrusion-base': ['get','base'], 'fill-extrusion-opacity': 1 } });
-        instance.on('click','toy-bus-models', e => { const props=e.features?.[0]?.properties; if(props) { setFocusId(props.busId); selectRef.current(props.routeKey, Number(props.seq)); } });
+        instance.on('click','toy-bus-models', e => { const props=e.features?.[0]?.properties; if(props) { setFocusId(props.busId); selectRef.current(props.routeKey, Number(props.seq)); busMarkers.current.get(props.busId)?.togglePopup(); } });
         instance.addSource('traffic', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
         instance.addLayer({ id: 'traffic-outline', type: 'line', source: 'traffic', layout: { 'line-cap':'round', 'line-join':'round' }, paint: { 'line-color':'#ffffff', 'line-width':7, 'line-offset':7 } }, 'road-casing');
         instance.addLayer({ id: 'traffic-speeds', type: 'line', source: 'traffic', layout: { 'line-cap':'round', 'line-join':'round' }, paint: { 'line-color':['get','color'], 'line-width':4.5, 'line-offset':7, 'line-opacity': .95 } }, 'road-casing');
@@ -129,6 +129,13 @@ export default function MapView({ routes, activeKey, selected, onSelect, tilted,
         busMarkers.current.set(id, marker);
       }
       marker.setLngLat([bus.lng, bus.lat]);
+      const hkTime=(value:string)=>new Date(value).toLocaleTimeString('en-GB',{timeZone:'Asia/Hong_Kong',hour:'2-digit',minute:'2-digit'});
+      const estimateText = `Towards ${bus.nextStop.name}. ${bus.confidence} confidence. ${bus.estimatedDeparture ? `Estimated leg start: ${hkTime(bus.estimatedDeparture)} HKT. Based on arrival at ${bus.anchorStop?.name || bus.nextStop.name}${bus.anchorEta ? ` at ${hkTime(bus.anchorEta)} HKT` : ''}, with about ${Math.round((bus.travelSeconds || 0)/60)} min assumed travel. ` : ''}Position and dotted progress are estimates, not GPS history.`;
+      if(marker.getElement().dataset.estimate!==estimateText){
+        const description=document.createElement('div'), title=document.createElement('strong'), text=document.createElement('p');
+        title.textContent=`${r.route.route} · estimated location`; text.textContent=estimateText; description.append(title,text);
+        marker.getPopup().setDOMContent(description); marker.getElement().dataset.estimate=estimateText;
+      }
       const arrow = marker.getElement().querySelector<HTMLElement>('.bus-direction')!;
       arrow.dataset.bearing = String(bus.bearing || 0); arrow.style.transform = `rotate(${(bus.bearing || 0) - instance.getBearing()}deg)`;
       marker.getElement().classList.toggle('focused-bus', focus?.id === id);
@@ -159,7 +166,7 @@ export default function MapView({ routes, activeKey, selected, onSelect, tilted,
     <div className="map-heading"><span className="eyebrow">KOWLOON, HONG KONG</span><h2>{tilted ? 'Kai Tak toy town' : 'Hello, Kai Tak!'}<span>啟德</span></h2></div>
     <div className="map-controls"><button onClick={() => map.current?.zoomIn()} aria-label="Zoom in"><Plus size={19}/></button><button onClick={() => map.current?.zoomOut()} aria-label="Zoom out"><Minus size={19}/></button><span/>{tilted && <button onClick={() => map.current?.easeTo({bearing:map.current.getBearing()+45,duration:500})} aria-label="Rotate toy town"><RotateCw size={18}/></button>}<button onClick={fit} aria-label="Fit route on map"><Maximize2 size={18}/></button><button onClick={fit} aria-label="Return to Kai Tak"><LocateFixed size={19}/></button></div>
     <div className="map-legend">{routes.map(r => <span key={r.key}><i className="legend-route" style={{ borderColor: r.color }}/>{r.route.route} →</span>)}<span><i className="legend-stop"/>Stop</span></div>
-    {traffic && <div className="traffic-card" role="status"><strong>🚦 Reported road speeds</strong><div className="speed-key"><span><i style={{background:'#eb6c77'}}/>&lt;20</span><span><i style={{background:'#f5bb51'}}/>20–40</span><span><i style={{background:'#58b68b'}}/>&gt;40 km/h</span></div><p>{trafficFeed.loading ? 'Checking Transport Department…' : trafficFeed.error || (trafficFeed.data?.features.length ? `${trafficFeed.data.features.length} monitored segments · ${trafficFeed.sourceLabel}` : 'No current readings in this area.')}</p><small>Uncoloured roads have no current data. Source: HK Transport Department.</small></div>}
+    {traffic && <div className="traffic-card" role="status"><strong>🚦 Reported road speeds</strong><div className="speed-key"><span><i style={{background:'#eb6c77'}}/>&lt;20</span><span><i style={{background:'#f5bb51'}}/>20–40</span><span><i style={{background:'#58b68b'}}/>&gt;40 km/h</span></div><p>{trafficFeed.loading ? 'Checking Transport Department…' : trafficFeed.error || (trafficFeed.data?.features.length ? `${trafficFeed.data.coveredSegments ?? trafficFeed.data.features.length} segments near selected routes · ${trafficFeed.sourceLabel}` : 'No current readings in this area.')}</p><small>{trafficFeed.data?.partialCorridor ? 'Some selected route paths could not load. ' : ''}Within 200 m of selected routes. Uncoloured roads have no current data. Source: HK Transport Department.</small></div>}
     {tilted && <div className="toy-notice">3D prototype · toy scale & illustrative heights</div>}
     {tileFailed && <div className="tile-warning">Some map layers could not load. Check your connection.</div>}
     <div className="map-caption">{unrouted.length ? `Road paths pending for ${unrouted.map(r => r.route.route).join(', ')}; stops shown without straight connecting lines.` : focus ? `Hollow dotted trail: ${focus.r.route.route} selected bus’s estimated progress · not GPS history` : 'Arrows show travel direction · road paths are estimates'}</div>

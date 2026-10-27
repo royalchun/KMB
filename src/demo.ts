@@ -3,7 +3,7 @@ import { segmentSeconds } from './estimate';
 export function demoFeed(route: Route, startedAt: number, now: number): Feed {
   const elapsed = (now - startedAt) / 1000;
   const cumulative = [0];
-  for (let i = 1; i < route.stops.length; i++) cumulative.push(cumulative[i - 1] + segmentSeconds(route.stops[i - 1], route.stops[i]));
+  for (let i = 1; i < route.stops.length; i++) cumulative.push(cumulative[i - 1] + segmentSeconds(route.stops[i - 1], route.stops[i], route.geometry?.segments[i - 1]));
   const total = cumulative.at(-1)!;
   // Keep trips far enough apart that a short two-stop demo (22X) does not
   // ambiguously match the next bus's upstream ETA to this bus's arrival.

@@ -1,6 +1,7 @@
 import { XMLParser, XMLValidator } from 'fast-xml-parser';
 import { readFileSync } from 'node:fs';
 import { upstreamFetch } from './provider.mjs';
+import { createCorridorClipper, CORRIDOR_METRES } from './corridor.mjs';
 export const SPEED_URL = 'https://resource.data.one.gov.hk/td/traffic-detectors/irnAvgSpeed-all.xml';
 export const MAX_TRAFFIC_AGE = 10 * 60 * 1000;
 const network = JSON.parse(readFileSync(new URL('./traffic-roads.json', import.meta.url), 'utf8'));
@@ -22,7 +23,8 @@ export function normalizeTraffic(xml, roads, now = Date.now()) {
 }
 export function createTrafficProvider(fetcher = upstreamFetch, clock = Date.now) {
   let xml = '', until = 0, pending;
-  return async () => {
+  const corridor = createCorridorClipper(network);
+  return async (paths) => {
     if (clock() >= until) {
       if (!pending) pending = (async () => {
         const r = await fetcher(SPEED_URL, { signal: AbortSignal.timeout(15000), headers: { Accept: 'application/xml' } });
@@ -32,6 +34,7 @@ export function createTrafficProvider(fetcher = upstreamFetch, clock = Date.now)
       })().finally(() => { pending = undefined; });
       await pending;
     }
-    return normalizeTraffic(xml, network, clock());
+    const result = normalizeTraffic(xml, paths ? corridor(paths) : network, clock());
+    return { ...result, corridorMetres: paths ? CORRIDOR_METRES : null, coveredSegments: new Set(result.features.map(f=>f.properties.id)).size };
   };
 }

@@ -9,7 +9,7 @@ test.beforeEach(async ({ page }) => {
   await page.route('https://tiles.openfreemap.org/**', route => route.request().url().endsWith('/planet')
     ? route.fulfill({ json: { tilejson:'3.0.0', tiles:['https://tiles.openfreemap.org/test/{z}/{x}/{y}.pbf'], minzoom:0, maxzoom:14 } })
     : route.fulfill({ contentType:'application/x-protobuf', body:Buffer.alloc(0) }));
-  await page.route('**/api/traffic', route => route.fulfill({ json: { type:'FeatureCollection', features:[{type:'Feature',properties:{id:'test-road',name:'Test Road',speed:15,color:'#eb6c77'},geometry:{type:'LineString',coordinates:[[114.201,22.329],[114.202,22.328]]}}],sourceTime:new Date().toISOString(),fetchedAt:new Date().toISOString(),stale:false,monitored:1 } }));
+  await page.route('**/api/traffic*', route => route.fulfill({ json: { type:'FeatureCollection', features:[{type:'Feature',properties:{id:'test-road',name:'Test Road',speed:15,color:'#eb6c77'},geometry:{type:'LineString',coordinates:[[114.201,22.329],[114.202,22.328]]}}],sourceTime:new Date().toISOString(),fetchedAt:new Date().toISOString(),stale:false,monitored:1 } }));
 });
 
 test('live failure stays explicit; demo renders a working interactive map', async ({ page }) => {
@@ -187,16 +187,42 @@ test('3D prototype builds toy geometry and returns to the flat cartoon map', asy
 });
 
 test('stale traffic readings and upstream failures remove the speed colours', async ({ page }) => {
-  await page.route('**/api/traffic', route=>route.fulfill({json:{type:'FeatureCollection',features:[],sourceTime:new Date(Date.now()-20*60000).toISOString(),fetchedAt:new Date().toISOString(),stale:true,monitored:1}}));
-  const staleResponse = page.waitForResponse(response => response.url().endsWith('/api/traffic') && response.status() === 200);
+  await page.route('**/api/traffic*', route=>route.fulfill({json:{type:'FeatureCollection',features:[],sourceTime:new Date(Date.now()-20*60000).toISOString(),fetchedAt:new Date().toISOString(),stale:true,monitored:1}}));
+  const staleResponse = page.waitForResponse(response => new URL(response.url()).pathname === '/api/traffic' && response.status() === 200);
   await page.goto('/?demo=1');
   await staleResponse;
   await expect(page.locator('.traffic-card')).toContainText('older than 10 minutes');
   await expect(page.locator('.map-shell')).toHaveAttribute('data-traffic-segments','0');
-  await page.route('**/api/traffic', route=>route.fulfill({status:502,json:{error:'Unavailable'}}));
+  await page.route('**/api/traffic*', route=>route.fulfill({status:502,json:{error:'Unavailable'}}));
   await page.getByRole('button',{name:'Show live traffic'}).click();
   await page.getByRole('button',{name:'Show live traffic'}).click();
   await expect(page.locator('.traffic-card')).toContainText('Traffic feed unavailable');
   await expect(page.locator('.map-shell')).toHaveAttribute('data-traffic-segments','0');
   await expect(page.locator('.map-bus').first()).toBeVisible();
+});
+
+test('22X shows an endpoint-only backcast and explains its estimated start', async ({ page }) => {
+  const r = { ...snapshots.find(s=>s.route==='22X'&&s.direction==='outbound')!,snapshot:false };
+  await page.route('**/api/route?*',request=>request.fulfill({json:r}));
+  await page.route('**/api/etas?*',request=>request.fulfill({json:{fetchedAt:new Date().toISOString(),partial:true,stops:[{stopId:r.stops[1].id,seq:2,generatedAt:new Date().toISOString(),arrivals:[{eta:new Date(Date.now()+180000).toISOString(),remark:''}]}]}}));
+  await page.goto('/?operator=ctb&route=22X&direction=outbound&serviceType=1');
+  const bus=page.locator('.map-bus[data-route="22X"]').first();
+  await expect(bus).toBeVisible();
+  await expect(bus).toHaveCSS('width','34px');
+  await bus.click();
+  await expect(page.locator('.maplibregl-popup')).toContainText('Estimated leg start:');
+  await expect(page.locator('.maplibregl-popup')).toContainText('Based on arrival at');
+});
+
+test('traffic requests follow the selected routes and directions', async ({ page }) => {
+  const requested:string[]=[];
+  page.on('request',r=>{const url=new URL(r.url());if(url.pathname==='/api/traffic')requested.push(url.searchParams.get('routes')||'');});
+  await page.goto('/?demo=1');
+  await expect.poll(()=>requested.at(-1)).toBe('ctb:22D:outbound:1');
+  await page.getByRole('button',{name:'Show all 3',exact:true}).click();
+  await expect.poll(()=>requested.at(-1)).toBe('ctb:22D:outbound:1,ctb:22S:outbound:1,ctb:22X:outbound:1');
+  await page.getByRole('checkbox',{name:'Show route 22S',exact:true}).uncheck();
+  await expect.poll(()=>requested.at(-1)).toBe('ctb:22D:outbound:1,ctb:22X:outbound:1');
+  await page.getByRole('button',{name:'Switch direction'}).click();
+  await expect.poll(()=>requested.at(-1)).toBe('ctb:22D:inbound:1,ctb:22X:outbound:1');
 });

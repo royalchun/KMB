@@ -16,8 +16,10 @@ describe('ETA position hypotheses', () => {
     expect(bus.lat).toBeCloseTo(22.3205, 5);
     expect(bus.lng).toBe(114.20);
   });
-  it('does not put an upstream bus between these stops', () => {
-    expect(estimateBuses(route, feed([10], [40]), now)).toEqual([]);
+  it('does not let a future origin ETA for another trip cancel a downstream backcast', () => {
+    const [bus] = estimateBuses(route, feed([10], [40]), now);
+    expect(bus.confidence).toBe('low');
+    expect(Date.parse(bus.estimatedDeparture!)).toBeLessThan(now);
   });
   it('labels an inference without a matched departure as low confidence', () => {
     expect(estimateBuses(route, feed([900], [20]), now)[0].confidence).toBe('low');
@@ -27,7 +29,7 @@ describe('ETA position hypotheses', () => {
     expect(estimateBuses(route, stale, now)).toEqual([]);
     expect(estimateBuses(route, { ...stale, stops: [stale.stops[0]] }, now)).toEqual([]);
     const failed = feed([-30], [30]); failed.stops[0].error = 'Unavailable';
-    expect(estimateBuses(route, failed, now)).toEqual([]);
+    expect(estimateBuses(route, failed, now)[0].confidence).toBe('low');
     expect(estimateBuses(route, feed([], [900]), now)).toEqual([]);
     expect(estimateBuses(route, null, now)).toEqual([]);
   });
@@ -38,6 +40,6 @@ describe('ETA position hypotheses', () => {
   });
   it('bounds assumed segment durations rather than implying measured speed', () => {
     expect(segmentSeconds(route.stops[0], route.stops[0])).toBe(50);
-    expect(segmentSeconds(route.stops[0], { ...route.stops[1], lat: 22.9 })).toBe(300);
+    expect(segmentSeconds(route.stops[0], { ...route.stops[1], lat: 22.9 })).toBe(1800);
   });
 });
