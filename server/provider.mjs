@@ -64,7 +64,7 @@ export function createProvider(fetcher = upstreamFetch, clock = Date.now) {
       // ETA numbering. Retain repeated origin/terminal occurrences (22X A-B-A)
       // and map each leg's occurrence, rather than deduplicating stop IDs.
       let returnStart;
-      if (s.operator === 'ctb' && ['22D','22S','22X'].includes(s.route)) {
+      if (s.operator === 'ctb' && ['22D','22S','22X','20X'].includes(s.route)) {
         const other = await get(`${base}/route-stop/CTB/${s.route}/${s.direction === 'outbound' ? 'inbound' : 'outbound'}`);
         if (!Array.isArray(other.data) || !other.data.length) throw new Error('The loop stop mapping is unavailable.');
         const outward = s.direction === 'outbound' ? refs : other.data.toSorted((a,b)=>Number(a.seq)-Number(b.seq));
@@ -99,8 +99,14 @@ export function createProvider(fetcher = upstreamFetch, clock = Date.now) {
           const payload = await get(ROOTS[s.operator] + '/eta' + suffix);
           if (!Array.isArray(payload.data)) throw new Error('Invalid ETA response');
           const dir = stop.etaDirection || (s.direction === 'outbound' ? 'O' : 'I');
-          const rows = payload.data.filter(row => row.dir === dir && Number(row.seq) === (stop.etaSeq || stop.seq)
+          const directional = payload.data.filter(row => row.dir === dir
             && (s.operator !== 'kmb' || Number(row.service_type) === Number(s.serviceType)));
+          let rows = directional.filter(row => Number(row.seq) === (stop.etaSeq || stop.seq));
+          // 20A variants skip stops. The endpoint already identifies the stop
+          // and route. A unique stop and one published sequence are unambiguous.
+          if (!rows.length && s.operator === 'ctb' && s.route === '20A'
+            && info.stops.filter(other => other.id === stop.id).length === 1
+            && new Set(directional.map(row => row.seq)).size === 1) rows = directional;
           const sourceTimes = rows.map(row => Date.parse(row.data_timestamp)).filter(Number.isFinite);
           return { stopId: stop.id, seq: stop.seq,
             generatedAt: sourceTimes.length ? new Date(Math.min(...sourceTimes)).toISOString() : payload.generated_timestamp || '',

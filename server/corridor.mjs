@@ -4,9 +4,9 @@ const SCALE = 111320, COS = Math.cos(22.32 * Math.PI / 180);
 const xy = ([lng,lat]) => [lng*SCALE*COS,lat*SCALE];
 export function trafficSelections(query) {
   if (query.routes === undefined) return [selectionFrom({})];
-  if (typeof query.routes !== 'string' || query.routes.length > 240) throw new Error('Select up to three valid routes.');
+  if (typeof query.routes !== 'string' || query.routes.length > 240) throw new Error('Select up to six valid routes.');
   const entries = query.routes.split(',');
-  if (!entries.length || entries.length > 3) throw new Error('Select up to three valid routes.');
+  if (!entries.length || entries.length > 6) throw new Error('Select up to six valid routes.');
   return entries.map(entry => {
     const parts = entry.split(':');
     if (parts.length !== 4 || parts.some(p => !p)) throw new Error('Invalid route selection.');

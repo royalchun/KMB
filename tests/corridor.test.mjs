@@ -22,8 +22,8 @@ describe('selected-route traffic corridor',()=>{
   expect(filter([path]).features.some(f=>f.properties.id==='far')).toBe(false);
   expect(filter([path])).toBe(filter([path]));expect(filter([]).features).toEqual([]);
  });
- it('validates up to three route/operator/direction selections before requesting paths',()=>{
+ it('validates up to six route/operator/direction selections before requesting paths',()=>{
   expect(trafficSelections({routes:'ctb:22X:outbound:1'})).toEqual([{operator:'ctb',route:'22X',direction:'outbound',serviceType:'1'}]);
-  for(const invalid of ['', 'ctb:22X:nope:1', '../secret', ['ctb:22X:outbound:1'],Array(4).fill('ctb:22X:outbound:1').join(',')])expect(()=>trafficSelections({routes:invalid})).toThrow();
+  for(const invalid of ['', 'ctb:22X:nope:1', '../secret', ['ctb:22X:outbound:1'],Array(7).fill('ctb:22X:outbound:1').join(',')])expect(()=>trafficSelections({routes:invalid})).toThrow();
  });
 });

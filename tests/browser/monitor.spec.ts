@@ -1,5 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { readFileSync } from 'node:fs';
+import { GeoJSONVT } from '@maplibre/geojson-vt';
+import { fromGeojsonVt } from '@maplibre/vt-pbf';
 import { demoFeed } from '../../src/demo';
 import type { Route } from '../../src/types';
 const snapshots = JSON.parse(readFileSync(new URL('../../src/route-snapshot.json', import.meta.url), 'utf8')) as Route[];
@@ -119,33 +121,33 @@ test('desktop demo screenshot and no client errors', async ({ page }) => {
   expect(errors).toEqual([]);
 });
 
-test('three routes can be compared, hidden, focused, and shared independently', async ({ page, context }) => {
+test('six routes can be compared, hidden, focused, and shared independently', async ({ page, context }) => {
   await context.grantPermissions(['clipboard-read', 'clipboard-write']);
   await page.goto('/?demo=1');
-  await page.getByRole('button', { name: 'Show all 3', exact: true }).click();
+  await page.getByRole('button', { name: 'Show all 6', exact: true }).click();
   await expect(page.getByRole('checkbox', { name: 'Show route 22D', exact: true })).toBeChecked();
   await expect(page.getByRole('checkbox', { name: 'Show route 22S', exact: true })).toBeChecked();
   await expect(page.getByRole('checkbox', { name: 'Show route 22X', exact: true })).toBeChecked();
-  await expect(page.locator('.map-stop')).toHaveCount(22);
-  await expect(page.locator('.map-shell')).toHaveAttribute('data-road-routes', '3');
+  await expect(page.locator('.map-stop')).toHaveCount(99);
+  await expect(page.locator('.map-shell')).toHaveAttribute('data-road-routes', '6');
   await expect(page.locator('.map-bus[data-route="22S"]').first()).toBeVisible();
   await expect(page.locator('.map-bus[data-route="22X"]').first()).toBeVisible();
   const colors = await page.locator('.route-choice').evaluateAll(items => items.map(item => getComputedStyle(item).getPropertyValue('--route-color')));
-  expect(new Set(colors).size).toBe(3);
+  expect(new Set(colors).size).toBe(6);
   await page.getByRole('button', { name: 'View route 22X arrivals', exact: true }).click();
   await expect(page.locator('.route-number')).toHaveText('22X');
   await expect(page.locator('.stop-list button')).toHaveCount(2);
   await page.getByRole('checkbox', { name: 'Show route 22S', exact: true }).uncheck();
   await expect(page.locator('.map-stop[data-route="22S"]')).toHaveCount(0);
   await expect(page.locator('.map-bus[data-route="22S"]')).toHaveCount(0);
-  await expect(page.locator('.map-stop')).toHaveCount(11);
+  await expect(page.locator('.map-stop')).toHaveCount(88);
   await page.getByRole('button', { name: 'Share monitor' }).click();
   const link = await page.evaluate(() => navigator.clipboard.readText());
   await page.goto(link);
   await expect(page.getByRole('checkbox', { name: 'Show route 22X', exact: true })).toBeChecked();
   await expect(page.locator('.route-number')).toHaveText('22X');
   await expect(page.getByRole('checkbox', { name: 'Show route 22S', exact: true })).not.toBeChecked();
-  await expect(page.locator('.map-stop')).toHaveCount(11);
+  await expect(page.locator('.map-stop')).toHaveCount(88);
 });
 
 test('one failed route leaves other live routes and their arrival boards usable', async ({ page }) => {
@@ -160,7 +162,7 @@ test('one failed route leaves other live routes and their arrival boards usable'
     return request.fulfill({ json: demoFeed(route, Date.now(), Date.now()) });
   });
   await page.goto('/');
-  await page.getByRole('button', { name: 'Show all 3', exact: true }).click();
+  await page.getByRole('button', { name: 'Show all 6', exact: true }).click();
   await expect(page.locator('.route-error')).toContainText('22S: arrivals unavailable');
   await expect(page.locator('.map-stop[data-route="22X"]')).toHaveCount(2);
   await page.getByRole('button', { name: 'View route 22X arrivals', exact: true }).click();
@@ -175,14 +177,14 @@ test('3D prototype builds toy geometry and returns to the flat cartoon map', asy
   await expect(page.locator('.map-shell')).toHaveAttribute('data-map-mode','2d');
   await page.getByRole('button',{name:'3D toy town'}).click();
   await expect(page.locator('.map-shell')).toHaveAttribute('data-map-mode','3d');
-  await expect.poll(async()=>Number(await page.locator('.map-shell').getAttribute('data-model-parts'))).toBeGreaterThan(10);
+  await expect.poll(async()=>Number(await page.locator('.map-canvas').getAttribute('data-model-parts'))).toBeGreaterThan(10);
   await expect(page.locator('.toy-notice')).toContainText('toy scale');
   await page.getByRole('button',{name:'Rotate toy town'}).click();
   await page.waitForTimeout(1000);
   await page.screenshot({path:'test-results/toy-town-3d.png',fullPage:true});
   await page.getByRole('button',{name:'2D cartoon'}).click();
   await expect(page.locator('.map-shell')).toHaveAttribute('data-map-mode','2d');
-  await expect(page.locator('.map-shell')).toHaveAttribute('data-model-parts','0');
+  await expect(page.locator('.map-canvas')).not.toHaveAttribute('data-blocking-buildings', /.+/);
   expect(errors).toEqual([]);
 });
 
@@ -219,10 +221,74 @@ test('traffic requests follow the selected routes and directions', async ({ page
   page.on('request',r=>{const url=new URL(r.url());if(url.pathname==='/api/traffic')requested.push(url.searchParams.get('routes')||'');});
   await page.goto('/?demo=1');
   await expect.poll(()=>requested.at(-1)).toBe('ctb:22D:outbound:1');
-  await page.getByRole('button',{name:'Show all 3',exact:true}).click();
+  await page.getByRole('checkbox',{name:'Show route 22S',exact:true}).check();
+  await page.getByRole('checkbox',{name:'Show route 22X',exact:true}).check();
   await expect.poll(()=>requested.at(-1)).toBe('ctb:22D:outbound:1,ctb:22S:outbound:1,ctb:22X:outbound:1');
   await page.getByRole('checkbox',{name:'Show route 22S',exact:true}).uncheck();
   await expect.poll(()=>requested.at(-1)).toBe('ctb:22D:outbound:1,ctb:22X:outbound:1');
   await page.getByRole('button',{name:'Switch direction'}).click();
   await expect.poll(()=>requested.at(-1)).toBe('ctb:22D:inbound:1,ctb:22X:outbound:1');
+});
+
+test('5R keeps its circular board and an inbound 20A opens in Kai Tak', async ({page}) => {
+  await page.goto('/?demo=1&routes=kmb:5R:outbound:1,ctb:20A:inbound:1,ctb:20X:outbound:1');
+  await expect(page.locator('.route-type')).toHaveText('Circular service');
+  await expect(page.getByRole('button', {name: 'Switch direction'})).toHaveCount(0);
+  await expect(page.locator('.stop-list button')).toHaveCount(18);
+  await page.getByRole('button', {name: 'View route 20A arrivals'}).click();
+  await expect(page.locator('.stop-list button')).toHaveCount(38);
+  await page.getByRole('button', {name: 'Fit route on map'}).click();
+  await page.waitForTimeout(800);
+  const canvas = page.locator('.map-canvas');
+  const firstStop = page.locator('.map-stop[data-route="20A"]').first();
+  const terminal = page.locator('.map-stop[data-route="20A"]').last();
+  const isOnMap = async (stop: typeof terminal) => {
+    const [map, marker] = await Promise.all([canvas.boundingBox(), stop.boundingBox()]);
+    return !!map && !!marker && marker.x > map.x && marker.x < map.x + map.width &&
+      marker.y > map.y && marker.y < map.y + map.height;
+  };
+  expect(await isOnMap(firstStop)).toBe(false); // West Kowloon
+  expect(await isOnMap(terminal)).toBe(true); // Kai Tak Cruise Terminal
+  await page.getByRole('button', {name: '3D toy town'}).click();
+  await page.waitForTimeout(1100);
+  expect(await isOnMap(firstStop)).toBe(false);
+  await page.getByRole('button', {name: 'View route 20X arrivals'}).click();
+  await page.getByRole('button', {name: 'Switch direction'}).click();
+  await expect(page.locator('.stop-list button')).toHaveCount(17);
+});
+
+test('only the foreground building fades and it recovers when the bus passes', async ({page}) => {
+  const time = Date.now();
+  await page.clock.install({time});
+  const lat = 22.32, lng = 114.202;
+  const stop = (seq: number, x: number) => ({id: String(seq), seq, name: 'Test stop', nameTc: '站', lng: x, lat});
+  const stops = [stop(1, lng - .0035), stop(2, lng + .0035)];
+  const route = {...snapshots[0], stops, geometry: {source: 'fixture', segments: [stops.map(s => [s.lng, s.lat])]}};
+  // The 720 m leg takes about 156 seconds. The bus starts near its midpoint.
+  const feed = {fetchedAt: new Date(time).toISOString(), partial: false, stops: [{
+    stopId: '2', seq: 2, generatedAt: new Date(time).toISOString(),
+    arrivals: [{eta: new Date(time + 78000).toISOString(), remark: ''}],
+  }]};
+  const buildings = new GeoJSONVT({type: 'FeatureCollection', features: [-32, 65].map(north => {
+    const ring = [[-23,-7], [23,-7], [23,7], [-23,7], [-23,-7]].map(([x,y]) =>
+      [lng + (x + 10) / 102950, lat + (north + y) / 111320]);
+    return {type: 'Feature', properties: {render_height: 125}, geometry: {type: 'Polygon', coordinates: [ring]}};
+  })}, {maxZoom: 14});
+  await page.route('**/api/route?*', request => request.fulfill({json: route}));
+  await page.route('**/api/etas?*', request => request.fulfill({json: feed}));
+  await page.route('https://tiles.openfreemap.org/test/**', request => {
+    const [z,x,y] = new URL(request.request().url()).pathname.slice(6, -4).split('/').map(Number);
+    const tile = buildings.getTile(z,x,y);
+    return request.fulfill({contentType: 'application/x-protobuf', body: tile ? Buffer.from(fromGeojsonVt({building: tile})) : Buffer.alloc(0)});
+  });
+  await page.goto('/');
+  await expect(page.locator('.map-bus')).toHaveCount(1);
+  await page.getByRole('button', {name: '3D toy town'}).click();
+  const canvas = page.locator('.map-canvas');
+  await expect(canvas).toHaveAttribute('data-blocking-buildings', '1');
+  await page.screenshot({path:'test-results/building-blocks-bus.png'});
+  await page.clock.fastForward(45000);
+  await expect(page.locator('.map-bus')).toHaveCount(1);
+  await expect(canvas).toHaveAttribute('data-blocking-buildings', '0');
+  await page.screenshot({path:'test-results/bus-clears-building.png'});
 });

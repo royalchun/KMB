@@ -3,9 +3,14 @@ import snapshots from './route-snapshot.json';
 import { demoFeed } from './demo';
 import type { Feed, RoadGeometry, Route, RouteState, Selection } from './types';
 export const keyOf = (s: Selection) => `${s.operator}:${s.route}:${s.serviceType}`;
-export const presets: Selection[] = ['22D', '22S', '22X'].map(route => ({ operator: 'ctb', route, direction: 'outbound', serviceType: '1' }));
-export const colors = ['#24766b', '#c26b25', '#7957b2'];
-export const routeColor = (s: Selection, index: number) => colors[presets.findIndex(p => p.route === s.route) < 0 ? index % 3 : presets.findIndex(p => p.route === s.route)];
+export const presets: Selection[] = ['22D', '22S', '22X', '20A', '20X', '5R'].map(route => ({
+  operator: route === '5R' ? 'kmb' : 'ctb', route, direction: 'outbound', serviceType: '1',
+}));
+const colors = ['#24766b', '#b56320', '#7957b2', '#266ba5', '#b33e67', '#617924'];
+export const routeColor = (s: Selection, index: number) => {
+  const preset = presets.findIndex(p => keyOf(p) === keyOf(s));
+  return colors[preset < 0 ? index % colors.length : preset];
+};
 export async function api<T>(endpoint: string, selection: Selection, signal: AbortSignal): Promise<T> {
   const r = await fetch(`/api/${endpoint}?${new URLSearchParams({ ...selection })}`, { signal });
   const data = await r.json();
@@ -34,8 +39,8 @@ export function useRoutes(selections: Selection[], mode: 'live' | 'demo', refres
       try {
         let route: Route;
         if (mode === 'demo') {
-          const saved = snapshots.find(s => s.operator === selection.operator && s.route === selection.route && s.direction === selection.direction);
-          if (!saved) throw new Error('Demo not available for this route. Select 22D, 22S or 22X.');
+          const saved = snapshots.find(s => s.operator === selection.operator && s.route === selection.route && s.direction === selection.direction && s.serviceType === selection.serviceType);
+          if (!saved) throw new Error('Demo not available for this route. Choose one of the six Kai Tak presets.');
           route = saved as Route;
         } else route = current[key].route || await api<Route>('route', selection, controller.signal);
         update(key, { route });

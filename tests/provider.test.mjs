@@ -42,6 +42,17 @@ describe('Government data adapters', () => {
     expect(result.stops[0].arrivals).toHaveLength(1);
     expect(fetcher.mock.calls.some(([url]) => url.includes('/kmb/eta/a/5R/1'))).toBe(true);
   });
+  it('handles a unique 20A stop on a shorter variant without mixing directions or ambiguous sequences', async () => {
+    const p = createProvider(mockFetch(url => {
+      if (!url.includes('/eta/')) return fixture(url);
+      const row = { dir: 'O', seq: 9, eta: stamp };
+      const data = [row, {...row, dir: 'I'}];
+      if (url.includes('/b/')) data.push({...row, seq: 10});
+      return {generated_timestamp: stamp, data};
+    }));
+    const feed = await p.etas({...selection, route: '20A'});
+    expect(feed.stops.map(stop => stop.arrivals.length)).toEqual([1, 0]);
+  });
   it('shares in-flight requests and expires its 30 second ETA cache', async () => {
     let now = 1_000;
     const fetcher = mockFetch();
@@ -100,7 +111,7 @@ describe('Government data adapters', () => {
 });
 
 describe('Citybus shared-leg loop mappings',()=>{
- for(const route of ['22X','22S'])it(`${route} keeps the repeated origin separate from its return occurrence`,async()=>{
+ for(const route of ['22X','22S','20X'])it(`${route} keeps the repeated origin separate from its return occurrence`,async()=>{
   const outward=route==='22X'?['a','b']:['a','b','c','d'];
   const returning=route==='22X'?['b','a']:['c','d','e','a'];
   const sequence=route==='22X'?{a:3,b:2}:{a:6,b:2,c:3,d:4,e:5};
@@ -109,7 +120,7 @@ describe('Citybus shared-leg loop mappings',()=>{
    if(url.includes('/eta/')){
     const id=url.split('/').at(-2);const origin={dir:'O',seq:1,eta:'2026-10-26T12:01:00+08:00'};
     const end={dir:'I',seq:sequence[id],eta:'2026-10-26T12:03:00+08:00'};
-    const rows=id==='a'?[origin,end]:[{...end,dir:route==='22S'&&id==='b'?'O':'I'}];
+    const rows=id==='a'?[origin,end]:[{...end,dir:route!=='22X'&&id==='b'?'O':'I'}];
     return{generated_timestamp:stamp,data:rows};
    }
    return fixture(url);

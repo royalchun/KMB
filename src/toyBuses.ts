@@ -1,25 +1,34 @@
 import type { FeatureCollection, Polygon } from 'geojson';
-import type { MapRoute, Coordinate } from './types';
+import type { MapRoute, Coordinate, BusEstimate } from './types';
 // Original miniature double-deckers. Geometry is intentionally toy scale.
 export const TOY_BUS_SCALE = 3.6;
+export function toyBusPoint(bus: BusEstimate, right: number, forward: number): Coordinate {
+  const angle = (bus.bearing || 0) * Math.PI / 180;
+  const east = right * Math.cos(angle) + forward * Math.sin(angle);
+  const north = -right * Math.sin(angle) + forward * Math.cos(angle);
+  return [bus.lng + east * TOY_BUS_SCALE / (111320 * Math.cos(bus.lat * Math.PI / 180)), bus.lat + north * TOY_BUS_SCALE / 111320];
+}
 export function toyBuses(routes: MapRoute[]): FeatureCollection<Polygon> {
   const features: FeatureCollection<Polygon>['features'] = [];
   for (const r of routes) for (const bus of r.route.geometry ? r.buses : []) {
-    const angle = (bus.bearing || 0) * Math.PI / 180;
     function box(x: number, y: number, width: number, length: number, base: number, height: number, color: string) {
       const corners = [[x-width/2,y-length/2],[x+width/2,y-length/2],[x+width/2,y+length/2],[x-width/2,y+length/2],[x-width/2,y-length/2]];
-      const coordinates = corners.map(([right, forward]): Coordinate => {
-        const east = right * Math.cos(angle) + forward * Math.sin(angle);
-        const north = -right * Math.sin(angle) + forward * Math.cos(angle);
-        return [bus.lng + east * TOY_BUS_SCALE / (111320 * Math.cos(bus.lat * Math.PI / 180)), bus.lat + north * TOY_BUS_SCALE / 111320];
-      });
+      const coordinates = corners.map(([right, forward]) => toyBusPoint(bus, right, forward));
       features.push({ type: 'Feature', properties: { color, base: base * TOY_BUS_SCALE, height: height * TOY_BUS_SCALE, route: r.route.route, routeKey: r.key, busId: `${r.key}:${r.route.direction}:${bus.id}`, seq: bus.nextStop.seq }, geometry: { type: 'Polygon', coordinates: [coordinates] } });
     }
     box(0,0,8,20,1.4,6,'#ffcf77'); box(0,0,7.7,19.5,6,10.7,'#ffe5a0');
     box(0,0,8,19.5,10.7,11.5,r.color);
     box(0,10,6.3,.4,2.8,5.4,'#416b7c'); box(0,9.8,6.3,.4,7,9.5,'#547e8c');
+    box(0, 10.15, 5.4, .45, 5.6, 6.9, '#203d45');
+    box(0, 10.4, 3.7, .2, 6, 6.45, '#ffd474');
+    box(0, -4, 4.2, 5.2, 11.5, 11.95, '#fff1bd');
     for(const side of [-1,1]) {
-      box(side*4,0,.3,13,3,5.4,'#547e8c'); box(side*3.9,0,.3,13,7,9.5,'#547e8c');
+      for (const y of [-6, -2, 2, 6]) {
+        box(side*4, y, .45, 3.2, 3, 5.45, '#294f60');
+        box(side*3.9, y, .45, 3.2, 7, 9.6, '#386476');
+      }
+      box(side*4, 0, .45, 18.5, 5.6, 6.3, r.color);
+      box(side*2.6, -10, 1.2, .5, 2.2, 3.4, '#b74339');
       for(const front of [-1,1]) box(side*4,front*5.5,1.4,3,0,2.5,'#4a4c58');
       box(side*2.6,10.2,1.2,.5,1.8,2.6,'#fff9d8');
     }
